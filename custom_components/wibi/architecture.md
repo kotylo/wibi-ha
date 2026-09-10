@@ -1,15 +1,22 @@
 # WiBi Integration Architecture
 
-The integration authenticates Home Assistant with WiBi's SchoolFox-backed API.
+The integration authenticates Home Assistant with WiBi's SchoolFox-backed API and exposes current messages without acknowledging them during polling.
 
 ## Files
 
-- `__init__.py` — config-entry setup, token validation, daily refresh scheduling, and runtime client storage.
-- `api.py` — asynchronous SSO token exchange and API token refresh client.
+- `__init__.py` — config-entry lifecycle, token refresh scheduling, platform forwarding, and Home Assistant action registration.
+- `api.py` — asynchronous authentication, inventory, message retrieval, and acknowledgement API client.
 - `config_flow.py` — Home Assistant UI setup and reauthentication flows.
 - `const.py` — integration and endpoint constants.
+- `coordinator.py` — five-minute polling and conversion of inventory items into message scopes.
+- `models.py` — message/scope models and HTML-to-plain-text conversion for TTS.
+- `notifications.py` — new-message event emission and persistent Home Assistant notifications.
+- `sensor.py` — message-count sensor with recent messages in state attributes.
+- `services.yaml` — UI metadata for reading and confirming message actions.
 - `manifest.json` — Home Assistant integration metadata.
 - `strings.json` — source UI translations.
 - `translations/` — localized Home Assistant UI strings.
 
-The config flow accepts only the final WiBi SSO callback URL. It extracts the one-time synchronization token, exchanges it immediately, and persists the returned authentication payload in the config entry. The integration refreshes and persists authentication at startup and every 23 hours. API behavior belongs in `api.py`; Home Assistant lifecycle behavior belongs in `__init__.py`.
+The config flow accepts only the final WiBi SSO callback URL. It extracts the one-time synchronization token, exchanges it immediately, and persists the returned authentication payload in the config entry. The integration refreshes and persists authentication at startup and every 23 hours.
+
+The coordinator discovers parent pupil scopes or staff class scopes from WiBi inventory, retrieves all message pages, deduplicates them, and updates the sensor every five minutes. The notifier seeds itself from the initial result, then creates a persistent Home Assistant notification and fires `wibi_new_message` for each subsequently discovered incoming message. Polling is read-only. `wibi.confirm_message` performs the recipient-record acknowledgement used by the WiBi web client, but only when explicitly called. API behavior belongs in `api.py`; polling belongs in `coordinator.py`; notification behavior belongs in `notifications.py`; Home Assistant lifecycle and actions belong in `__init__.py`.

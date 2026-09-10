@@ -6,13 +6,18 @@ from datetime import datetime
 from functools import partial
 import logging
 
+import voluptuous as vol
+
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
     ConfigEntryError,
     ConfigEntryNotReady,
+    HomeAssistantError,
+    ServiceValidationError,
 )
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_time_interval
 
@@ -22,11 +27,21 @@ from .api import (
     WibiConnectionError,
     WibiError,
 )
-from .const import CONF_AUTH, TOKEN_REFRESH_INTERVAL
+from .const import (
+    ATTR_MESSAGE_ID,
+    CONF_AUTH,
+    DOMAIN,
+    PLATFORMS,
+    SERVICE_CONFIRM_MESSAGE,
+    SERVICE_GET_MESSAGES,
+    TOKEN_REFRESH_INTERVAL,
+)
+from .coordinator import WibiDataUpdateCoordinator
+from .notifications import WibiMessageNotifier
 
 _LOGGER = logging.getLogger(__name__)
 
-type WibiConfigEntry = ConfigEntry[WibiClient]
+type WibiConfigEntry = ConfigEntry[WibiDataUpdateCoordinator]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: WibiConfigEntry) -> bool:
@@ -42,7 +57,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: WibiConfigEntry) -> bool
     except WibiError as error:
         raise ConfigEntryError("WiBi returned an invalid response") from error
 
-    entry.runtime_data = client
+    coordinator = WibiDataUpdateCoordinator(hass, entry, client)
+    await coordinator.async_config_entry_first_refresh()
+    entry.runtime_data = coordinator
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _async_register_services(hass, entry, coordinator)
+    notifier = WibiMessageNotifier(hass, coordinator)
+    entry.async_on_unload(coordinator.async_add_listener(notifier.async_handle_update))
     entry.async_on_unload(
         async_track_time_interval(
             hass,
@@ -55,7 +76,60 @@ async def async_setup_entry(hass: HomeAssistant, entry: WibiConfigEntry) -> bool
 
 async def async_unload_entry(hass: HomeAssistant, entry: WibiConfigEntry) -> bool:
     """Unload a WiBi config entry."""
-    return True
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
+        hass.services.async_remove(DOMAIN, SERVICE_GET_MESSAGES)
+        hass.services.async_remove(DOMAIN, SERVICE_CONFIRM_MESSAGE)
+    return unloaded
+
+
+def _async_register_services(
+    hass: HomeAssistant,
+    entry: WibiConfigEntry,
+    coordinator: WibiDataUpdateCoordinator,
+) -> None:
+    """Register read and acknowledgement actions for the single WiBi entry."""
+
+    async def async_get_messages(_call: ServiceCall) -> dict[str, object]:
+        await coordinator.async_request_refresh()
+        messages = coordinator.data
+        return {
+            "count": len(messages),
+            "messages": [message.as_dict() for message in messages],
+        }
+
+    async def async_confirm_message(call: ServiceCall) -> dict[str, object]:
+        message_id = call.data[ATTR_MESSAGE_ID]
+        message = next(
+            (message for message in coordinator.data if message.id == message_id), None
+        )
+        if message is None:
+            raise ServiceValidationError(f"Unknown WiBi message ID: {message_id}")
+        if message.is_owned:
+            raise ServiceValidationError("Sent WiBi messages cannot be confirmed")
+        try:
+            await coordinator.async_confirm(message_id)
+        except WibiAuthenticationError as error:
+            entry.async_start_reauth(hass)
+            raise HomeAssistantError("WiBi authentication expired") from error
+        except WibiError as error:
+            raise HomeAssistantError(str(error)) from error
+        return {"message_id": message_id, "confirmed": True}
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_GET_MESSAGES,
+        async_get_messages,
+        schema=vol.Schema({}),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CONFIRM_MESSAGE,
+        async_confirm_message,
+        schema=vol.Schema({vol.Required(ATTR_MESSAGE_ID): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
 
 
 async def _async_refresh_and_persist(

@@ -1,0 +1,15 @@
+get_messages:
+  name: Get messages
+  description: Return every current WiBi message, including plain-text content for TTS.
+
+confirm_message:
+  name: Confirm message
+  description: Acknowledge a WiBi message as the signed-in user. This changes the message in WiBi.
+  fields:
+    message_id:
+      name: Message ID
+      description: The ID exposed by the WiBi Messages sensor or Get messages action.
+      required: true
+      example: "12345678-1234-1234-1234-123456789abc"
+      selector:
+        text:
