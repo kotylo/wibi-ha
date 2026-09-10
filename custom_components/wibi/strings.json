@@ -1,0 +1,36 @@
+{
+  "config": {
+    "abort": {
+      "reauth_successful": "Reauthentication was successful",
+      "single_instance_allowed": "Only one WiBi account can be configured"
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to WiBi",
+      "invalid_auth": "The sign-in code was rejected or has expired. Sign in again and paste the new address immediately",
+      "invalid_callback": "Enter the complete WiBi success-page address",
+      "unknown": "Unexpected response from WiBi"
+    },
+    "step": {
+      "reauth_confirm": {
+        "title": "Sign in again",
+        "description": "Copy `{login_url}` into a new browser tab, complete Stadt Wien sign-in, then immediately copy the complete WiBi success-page address and paste it below.",
+        "data": {
+          "callback_url": "WiBi success-page address"
+        },
+        "data_description": {
+          "callback_url": "Expected format: https://wibi.wien.gv.at/#/sso-success?syncToken=..."
+        }
+      },
+      "user": {
+        "title": "Sign in with Stadt Wien-Konto",
+        "description": "Copy `{login_url}` into a new browser tab, complete Stadt Wien sign-in and phone approval, then immediately copy the complete WiBi success-page address and paste it below. The one-time code expires quickly.",
+        "data": {
+          "callback_url": "WiBi success-page address"
+        },
+        "data_description": {
+          "callback_url": "Expected format: https://wibi.wien.gv.at/#/sso-success?syncToken=..."
+        }
+      }
+    }
+  }
+}
