@@ -28,5 +28,6 @@ PLATFORMS = [Platform.SENSOR]
 
 SERVICE_GET_MESSAGES = "get_messages"
 SERVICE_CONFIRM_MESSAGE = "confirm_message"
+SERVICE_CONFIRM_LAST_MESSAGE = "confirm_last_message"
 ATTR_MESSAGE_ID = "message_id"
 EVENT_NEW_MESSAGE = "wibi_new_message"

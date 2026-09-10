@@ -52,6 +52,14 @@ data:
 
 This has the same external effect as confirming/signing the message in the WiBi web app. The integration refreshes its sensor immediately afterward.
 
+To acknowledge the newest incoming message without looking up its ID, use:
+
+```yaml
+action: wibi.confirm_last_message
+```
+
+The action refreshes the message list before selecting the newest incoming message. If that message was already confirmed, the operation is harmless and remains idempotent; it will not skip backwards and unexpectedly confirm an older message.
+
 For TTS, request the complete message list into a response variable and select the content you want to announce:
 
 ```yaml
@@ -74,5 +82,13 @@ Replace the example TTS and media-player entity IDs with entities from your Home
 ## Installation for development
 
 Copy `custom_components/wibi` into the `custom_components` directory of a Home Assistant configuration, restart Home Assistant, and add the integration through the UI.
+
+For repeat deployments over SSH, copy `.env.example` to `.env`, fill in the server values, and run:
+
+```powershell
+.\copy-to-server.ps1
+```
+
+The script validates that the configured remote path ends in `/custom_components`, excludes generated Python bytecode, validates the uploaded manifest, and installs the component through a staging directory. If WiBi is already installed, it is moved to a timestamped `.wibi-backup-*` directory first. The script does not restart Home Assistant.
 
 This project uses an undocumented API observed in the public WiBi web client. Upstream authentication behavior may change without notice.

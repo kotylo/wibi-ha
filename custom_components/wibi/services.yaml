@@ -13,3 +13,7 @@ confirm_message:
       example: "12345678-1234-1234-1234-123456789abc"
       selector:
         text:
+
+confirm_last_message:
+  name: Confirm last message
+  description: Acknowledge the newest incoming WiBi message without requiring its ID. This changes the message in WiBi.

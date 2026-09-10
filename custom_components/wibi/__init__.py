@@ -32,6 +32,7 @@ from .const import (
     CONF_AUTH,
     DOMAIN,
     PLATFORMS,
+    SERVICE_CONFIRM_LAST_MESSAGE,
     SERVICE_CONFIRM_MESSAGE,
     SERVICE_GET_MESSAGES,
     TOKEN_REFRESH_INTERVAL,
@@ -80,6 +81,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: WibiConfigEntry) -> boo
     if unloaded:
         hass.services.async_remove(DOMAIN, SERVICE_GET_MESSAGES)
         hass.services.async_remove(DOMAIN, SERVICE_CONFIRM_MESSAGE)
+        hass.services.async_remove(DOMAIN, SERVICE_CONFIRM_LAST_MESSAGE)
     return unloaded
 
 
@@ -107,6 +109,20 @@ def _async_register_services(
             raise ServiceValidationError(f"Unknown WiBi message ID: {message_id}")
         if message.is_owned:
             raise ServiceValidationError("Sent WiBi messages cannot be confirmed")
+        return await _async_confirm(message.id, message.as_dict())
+
+    async def async_confirm_last_message(_call: ServiceCall) -> dict[str, object]:
+        await coordinator.async_request_refresh()
+        message = next(
+            (message for message in coordinator.data if not message.is_owned), None
+        )
+        if message is None:
+            raise ServiceValidationError("No received WiBi message is available")
+        return await _async_confirm(message.id, message.as_dict())
+
+    async def _async_confirm(
+        message_id: str, message_data: dict[str, object]
+    ) -> dict[str, object]:
         try:
             await coordinator.async_confirm(message_id)
         except WibiAuthenticationError as error:
@@ -114,7 +130,15 @@ def _async_register_services(
             raise HomeAssistantError("WiBi authentication expired") from error
         except WibiError as error:
             raise HomeAssistantError(str(error)) from error
-        return {"message_id": message_id, "confirmed": True}
+        return {
+            "message_id": message_id,
+            "confirmed": True,
+            "message": {
+                **message_data,
+                "is_confirmed": True,
+                "can_confirm": False,
+            },
+        }
 
     hass.services.async_register(
         DOMAIN,
@@ -128,6 +152,13 @@ def _async_register_services(
         SERVICE_CONFIRM_MESSAGE,
         async_confirm_message,
         schema=vol.Schema({vol.Required(ATTR_MESSAGE_ID): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CONFIRM_LAST_MESSAGE,
+        async_confirm_last_message,
+        schema=vol.Schema({}),
         supports_response=SupportsResponse.OPTIONAL,
     )
 
