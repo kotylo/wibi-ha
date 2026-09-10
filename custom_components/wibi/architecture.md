@@ -14,6 +14,7 @@ The integration authenticates Home Assistant with WiBi's SchoolFox-backed API an
 - `sensor.py` — message-count sensor with recent messages in state attributes.
 - `services.yaml` — UI metadata for reading and confirming message actions.
 - `manifest.json` — Home Assistant integration metadata.
+- `brand/` — local integration icon served by Home Assistant's Brands API.
 - `strings.json` — source UI translations.
 - `translations/` — localized Home Assistant UI strings.
 
