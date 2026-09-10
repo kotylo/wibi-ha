@@ -13,7 +13,7 @@
     "step": {
       "reauth_confirm": {
         "title": "Sign in again",
-        "description": "Copy `{login_url}` into a new browser tab, complete Stadt Wien sign-in, then immediately copy the complete WiBi success-page address and paste it below.",
+        "description": "[Open WiBi sign-in]({login_url}), complete Stadt Wien sign-in, then immediately copy the complete WiBi success-page address and paste it below.",
         "data": {
           "callback_url": "WiBi success-page address"
         },
@@ -23,7 +23,7 @@
       },
       "user": {
         "title": "Sign in with Stadt Wien-Konto",
-        "description": "Copy `{login_url}` into a new browser tab, complete Stadt Wien sign-in and phone approval, then immediately copy the complete WiBi success-page address and paste it below. The one-time code expires quickly.",
+        "description": "[Open WiBi sign-in]({login_url}), complete Stadt Wien sign-in and phone approval, then immediately copy the complete WiBi success-page address and paste it below. The one-time code expires quickly.",
         "data": {
           "callback_url": "WiBi success-page address"
         },

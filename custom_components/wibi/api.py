@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Mapping
 from datetime import UTC, datetime
+import logging
 from typing import Any
 from urllib.parse import parse_qs, quote, urlparse
 from uuid import UUID
@@ -22,6 +23,8 @@ from .const import (
 )
 
 REQUEST_TIMEOUT = 30
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class WibiError(Exception):
@@ -171,7 +174,7 @@ class WibiClient:
         return messages
 
     async def async_get_message(self, message_id: str) -> dict[str, Any]:
-        """Return a single current message with its recipient information."""
+        """Return a single current message."""
         encoded_id = quote(message_id, safe="")
         response = await self._async_request(
             "GET",
@@ -182,19 +185,61 @@ class WibiClient:
             raise WibiError("WiBi returned an unexpected message response")
         return response
 
+    async def async_get_message_recipients(
+        self, message_id: str, pupil_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Return acknowledgement records associated with one message."""
+        filters = [f"MessageId eq '{_odata_string(message_id)}'"]
+        if pupil_id:
+            filters.append(f"PupilId eq '{_odata_string(pupil_id)}'")
+        response = await self._async_request(
+            "GET",
+            "/tables/MessageRelatedPupils",
+            params={"$filter": " and ".join(filters), "$top": "50"},
+            headers=self._auth_headers(),
+        )
+        if isinstance(response, dict):
+            response = response.get("results")
+        if not isinstance(response, list) or not all(
+            isinstance(item, dict) for item in response
+        ):
+            raise WibiError("WiBi returned unexpected message recipient information")
+        return response
+
     async def async_confirm_message(self, message_id: str) -> dict[str, Any]:
         """Acknowledge a message as the authenticated user."""
         message = await self.async_get_message(message_id)
-        recipient = _recipient_record(message)
+        if message.get("isOwned") is True:
+            raise WibiError("Owned messages cannot be acknowledged")
+        if message.get("isSigned") is True:
+            _LOGGER.debug("WiBi message %s is already acknowledged", message_id)
+            return message
+
+        user_id = self.user.get("id")
+        if not user_id:
+            raise WibiError("WiBi did not provide the authenticated user ID")
+
+        pupil_id = message.get("pupilId")
+        recipients = await self.async_get_message_recipients(
+            message_id,
+            str(pupil_id) if pupil_id else None,
+        )
+        _LOGGER.debug(
+            "WiBi message %s has %d acknowledgement record(s)",
+            message_id,
+            len(recipients),
+        )
+        recipient = _recipient_record(recipients, str(user_id))
         if recipient.get("signedByUserId"):
             return recipient
 
-        user_id = self.user.get("id")
         recipient_id = recipient.get("id")
-        if not user_id or not recipient_id:
-            raise WibiError("WiBi did not provide acknowledgement identifiers")
-        if message.get("isOwned") is True:
-            raise WibiError("Owned messages cannot be acknowledged")
+        if not recipient_id:
+            _LOGGER.warning(
+                "WiBi acknowledgement record is missing an ID; fields=%s",
+                sorted(recipient),
+            )
+            raise WibiError("WiBi did not provide an acknowledgement record ID")
 
         update = {
             **recipient,
@@ -239,6 +284,12 @@ class WibiClient:
                     headers=request_headers,
                     json=json_body,
                 ) as response:
+                    _LOGGER.debug(
+                        "WiBi API %s %s returned HTTP %d",
+                        method,
+                        path,
+                        response.status,
+                    )
                     return await self._async_decode_response(
                         response, authentication_statuses or {401, 403}
                     )
@@ -288,9 +339,36 @@ def _odata_string(value: str) -> str:
     return str(value).replace("'", "''")
 
 
-def _recipient_record(message: Mapping[str, Any]) -> dict[str, Any]:
-    """Extract the current user's acknowledgement record from a message."""
-    info = message.get("info")
-    if not isinstance(info, list) or not info or not isinstance(info[0], dict):
-        raise WibiError("WiBi did not provide message recipient information")
-    return dict(info[0])
+def _recipient_record(
+    recipients: list[dict[str, Any]], user_id: str
+) -> dict[str, Any]:
+    """Select the acknowledgement record belonging to the current user."""
+    matching = [
+        recipient
+        for recipient in recipients
+        if user_id in _string_list(recipient.get("userRecipientsIds"))
+    ]
+    if len(matching) == 1:
+        return dict(matching[0])
+    if not matching and len(recipients) == 1:
+        _LOGGER.debug(
+            "Using the only WiBi acknowledgement record because its recipient "
+            "list did not contain the current user"
+        )
+        return dict(recipients[0])
+
+    _LOGGER.warning(
+        "Unable to select WiBi acknowledgement record: records=%d matches=%d "
+        "field_sets=%s",
+        len(recipients),
+        len(matching),
+        [sorted(recipient) for recipient in recipients],
+    )
+    raise WibiError("WiBi did not provide a unique acknowledgement record")
+
+
+def _string_list(value: Any) -> list[str]:
+    """Normalize a possible API list to strings without accepting scalars."""
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if item is not None]

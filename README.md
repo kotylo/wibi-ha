@@ -16,7 +16,7 @@ WiBi Home Assistant Integration is a custom integration for connecting Home Assi
 The first iteration implements authentication through the **Stadt Wien-Konto** single sign-on flow:
 
 1. In Home Assistant, go to **Settings → Devices & services → Add integration** and select **WiBi**.
-2. Copy the displayed sign-in URL into a new browser tab.
+2. Select the displayed **Open WiBi sign-in** link.
 3. Sign in and approve the request with the Stadt Wien authentication app.
 4. When the browser reaches the WiBi success page, copy its complete address immediately.
 5. Paste that address into the Home Assistant setup form.
@@ -90,5 +90,13 @@ For repeat deployments over SSH, copy `.env.example` to `.env`, fill in the serv
 ```
 
 The script validates that the configured remote path ends in `/custom_components`, excludes generated Python bytecode, validates the uploaded manifest, and installs the component through a staging directory. If WiBi is already installed, it is moved to a timestamped `.wibi-backup-*` directory first. The script does not restart Home Assistant.
+
+For detailed production diagnostics without logging authentication tokens or message bodies, enable the integration's debug logger in `configuration.yaml`:
+
+```yaml
+logger:
+  logs:
+    custom_components.wibi: debug
+```
 
 This project uses an undocumented API observed in the public WiBi web client. Upstream authentication behavior may change without notice.
