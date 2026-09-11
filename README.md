@@ -7,7 +7,8 @@ WiBi Home Assistant Integration is a custom integration for connecting Home Assi
 - Stadt Wien-Konto SSO with manual phone approval.
 - Persisted and automatically refreshed WiBi API authentication.
 - All current messages polled every five minutes across the account's pupil or class scopes.
-- Plain-text message bodies suitable for Home Assistant text-to-speech templates.
+- Structured plain-text message bodies suitable for notifications and text-to-speech.
+- Telegram-compatible HTML message bodies that retain emphasis such as bold and underline.
 - New-message Home Assistant notifications and automation events, normally within five minutes.
 - Explicit message acknowledgement through a Home Assistant action.
 
@@ -23,7 +24,7 @@ The first iteration implements authentication through the **Stadt Wien-Konto** s
 
 Home Assistant exchanges the short-lived callback code for a WiBi API token. The token is stored in the Home Assistant config entry, refreshed when the integration loads, and refreshed again every 23 hours to keep the session active. Rotated tokens are persisted automatically. Passwords and Stadt Wien cookies are never handled or stored by the integration.
 
-After setup, `sensor.wibi_messages` contains the total current message count. Its attributes include unread and unconfirmed counts and the 20 newest messages. Message bodies are converted from HTML to plain text. The complete, untruncated list is available through the `wibi.get_messages` action.
+After setup, `sensor.wibi_messages` contains the total current message count. Its attributes include unread and unconfirmed counts and the 20 newest messages. Each message has a `content` field with paragraphs, line breaks, and lists rendered as `- ` lines. Its `contentHtml` field contains Telegram-compatible HTML that also retains supported formatting such as bold, italic, underline, strikethrough, code, and links. The complete, untruncated list is available through the `wibi.get_messages` action.
 
 The first synchronization establishes a baseline and does not generate old-message alerts. After that, each newly discovered incoming message creates a persistent notification in Home Assistant and fires a `wibi_new_message` event containing the message fields. WiBi's web client does not expose a reusable live notification connection, so the integration polls every five minutes. The normal maximum detection delay is therefore five minutes, comfortably below 15 minutes.
 
@@ -41,6 +42,23 @@ actions:
 ```
 
 Replace `notify.mobile_app_your_phone` with the notify action provided by your phone. Polling, persistent notifications, and automation events do not acknowledge messages.
+
+To forward a new message to Telegram with its original emphasis, enable HTML parsing and use `contentHtml`. Paragraphs and list items are already represented with line breaks, while unsupported source markup and inline CSS are removed:
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: wibi_new_message
+actions:
+  - action: telegram_bot.send_message
+    data:
+      chat_id: YOUR_TELEGRAM_CHAT_ID
+      parse_mode: html
+      title: "WiBi: {{ trigger.event.data.topic }}"
+      message: "{{ trigger.event.data.contentHtml }}"
+```
+
+Replace `YOUR_TELEGRAM_CHAT_ID` with the chat ID accepted by your Telegram bot integration. If your Telegram action does not support a separate `title`, include the topic at the start of `message` instead.
 
 Polling and retrieving messages never acknowledges them. To acknowledge one message in WiBi, explicitly call `wibi.confirm_message` with the message's `id`:
 

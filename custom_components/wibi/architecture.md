@@ -9,7 +9,7 @@ The integration authenticates Home Assistant with WiBi's SchoolFox-backed API an
 - `config_flow.py` — Home Assistant UI setup and reauthentication flows.
 - `const.py` — integration and endpoint constants.
 - `coordinator.py` — five-minute polling and conversion of inventory items into message scopes.
-- `models.py` — message/scope models and HTML-to-plain-text conversion for TTS.
+- `models.py` — message/scope models plus structured plain-text and Telegram-compatible HTML rendering.
 - `notifications.py` — new-message event emission and persistent Home Assistant notifications.
 - `sensor.py` — message-count sensor with recent messages in state attributes.
 - `services.yaml` — UI metadata for reading and confirming message actions.
