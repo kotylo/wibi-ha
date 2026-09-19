@@ -171,7 +171,100 @@ class WibiClient:
                 or (isinstance(total, int) and offset >= total)
             ):
                 break
+        await self._async_attach_message_replies(messages, pupil_id)
         return messages
+
+    async def async_get_message_replies(
+        self, message_id: str, pupil_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Return direct-answer replies associated with one message."""
+        group_filters = [f"MessageId eq '{_odata_string(message_id)}'"]
+        if pupil_id:
+            group_filters.append(f"PupilId eq '{_odata_string(pupil_id)}'")
+
+        groups: list[dict[str, Any]] = []
+        previous_page_ids: tuple[str, ...] | None = None
+        offset = 0
+        page_size = 50
+        while True:
+            response = await self._async_request(
+                "GET",
+                "/tables/InstantMessageGroups",
+                params={
+                    "$filter": " and ".join(group_filters),
+                    "$orderby": "UpdatedAt desc",
+                    "$top": str(page_size),
+                    "$skip": str(offset),
+                    "$inlinecount": "allpages",
+                },
+                headers=self._auth_headers(),
+            )
+            page, total = _collection_page(
+                response, "WiBi returned unexpected instant message groups"
+            )
+            page_ids = tuple(str(item.get("id")) for item in page)
+            if page and page_ids == previous_page_ids:
+                raise WibiError("WiBi instant message group pagination did not advance")
+            previous_page_ids = page_ids
+            groups.extend(page)
+            offset += len(page)
+            if (
+                not page
+                or len(page) < page_size
+                or (isinstance(total, int) and offset >= total)
+            ):
+                break
+
+        reply_pages = await asyncio.gather(
+            *(
+                self.async_get_instant_messages(str(group["id"]), pupil_id)
+                for group in groups
+                if group.get("id")
+            )
+        )
+        return [reply for page in reply_pages for reply in page]
+
+    async def async_get_instant_messages(
+        self, group_id: str, pupil_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Return the direct-answer replies in one message group."""
+        filters = [f"InstantMessageGroupId eq '{_odata_string(group_id)}'"]
+        if pupil_id:
+            filters.append(f"PupilId eq '{_odata_string(pupil_id)}'")
+        response = await self._async_request(
+            "GET",
+            "/tables/InstantMessages",
+            params={
+                "$filter": " and ".join(filters),
+                "$orderby": "CreatedAt desc",
+            },
+            headers=self._auth_headers(),
+        )
+        page, _total = _collection_page(
+            response, "WiBi returned unexpected instant messages"
+        )
+        return page
+
+    async def _async_attach_message_replies(
+        self, messages: list[dict[str, Any]], pupil_id: str | None
+    ) -> None:
+        """Add direct-answer payloads to messages that have replies."""
+        candidates = [
+            message
+            for message in messages
+            if message.get("id") and _has_message_replies(message)
+        ]
+        if not candidates:
+            return
+
+        reply_pages = await asyncio.gather(
+            *(
+                self.async_get_message_replies(str(message["id"]), pupil_id)
+                for message in candidates
+            )
+        )
+        for message, replies in zip(candidates, reply_pages, strict=True):
+            message["replies"] = replies
 
     async def async_get_message(self, message_id: str) -> dict[str, Any]:
         """Return a single current message."""
@@ -337,6 +430,38 @@ class WibiClient:
 def _odata_string(value: str) -> str:
     """Escape a value for a quoted OData string literal."""
     return str(value).replace("'", "''")
+
+
+def _collection_page(
+    response: Any, error_message: str
+) -> tuple[list[dict[str, Any]], int | None]:
+    """Normalize an OData page or direct list response."""
+    if isinstance(response, list):
+        return [item for item in response if isinstance(item, dict)], None
+    if not isinstance(response, dict) or not isinstance(
+        response.get("results"), list
+    ):
+        raise WibiError(error_message)
+    total = response.get("count")
+    return (
+        [item for item in response["results"] if isinstance(item, dict)],
+        total if isinstance(total, int) else None,
+    )
+
+
+def _has_message_replies(payload: Mapping[str, Any]) -> bool:
+    """Return whether a message advertises one or more direct answers."""
+    count = payload.get("instantMessagesCount")
+    if isinstance(count, bool):
+        return count
+    if isinstance(count, int):
+        return count > 0
+    if isinstance(count, str):
+        try:
+            return int(count) > 0
+        except ValueError:
+            pass
+    return payload.get("hasUnreadInstantMessages") is True
 
 
 def _recipient_record(

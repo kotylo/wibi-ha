@@ -36,6 +36,67 @@ class MessageScope:
 
 
 @dataclass(frozen=True, slots=True)
+class WibiReply:
+    """A direct-answer reply attached to a WiBi message."""
+
+    id: str
+    content: str
+    content_html: str
+    sender: str
+    created_at: str | None
+    is_incoming: bool
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> WibiReply | None:
+        """Create a reply from an InstantMessages table payload."""
+        reply_id = payload.get("id")
+        if not reply_id:
+            return None
+
+        content, content_html = _render_content(_text(payload.get("content")))
+        sender = _text(
+            payload.get("creatorFullName") or payload.get("CreatorFullName")
+        )
+        if not sender:
+            sender = " ".join(
+                part
+                for part in (
+                    _text(payload.get("creatorFirstName")),
+                    _text(payload.get("creatorLastName")),
+                )
+                if part
+            )
+        incoming = payload.get("isIncoming")
+        if not isinstance(incoming, bool):
+            incoming = payload.get("IsIncoming")
+
+        return cls(
+            id=str(reply_id),
+            content=content,
+            content_html=content_html,
+            sender=sender,
+            created_at=_optional_text(
+                payload.get("createdAt")
+                or payload.get("CreatedAt")
+                or payload.get("updatedAt")
+                or payload.get("UpdatedAt")
+            ),
+            is_incoming=bool(incoming),
+        )
+
+    def as_dict(self) -> dict[str, Any]:
+        """Return serializable reply data."""
+        return {
+            "id": self.id,
+            "content": self.content,
+            "contentHtml": self.content_html,
+            "sender": self.sender,
+            "created_at": self.created_at,
+            "is_incoming": self.is_incoming,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class WibiMessage:
     """A stable, Home Assistant-friendly representation of a WiBi message."""
 
@@ -54,6 +115,7 @@ class WibiMessage:
     is_confirmed: bool
     signature_required: bool
     is_done: bool
+    replies: tuple[WibiReply, ...] = ()
 
     @classmethod
     def from_payload(
@@ -69,6 +131,16 @@ class WibiMessage:
             recipient = {}
 
         content, content_html = _render_content(_text(payload.get("content")))
+        reply_payloads = payload.get("replies")
+        if not isinstance(reply_payloads, list):
+            reply_payloads = payload.get("instantMessages")
+        replies = tuple(
+            reply
+            for item in (reply_payloads if isinstance(reply_payloads, list) else [])
+            if isinstance(item, dict)
+            for reply in (WibiReply.from_payload(item),)
+            if reply is not None
+        )
         return cls(
             id=str(message_id),
             topic=_text(payload.get("topic")),
@@ -91,12 +163,18 @@ class WibiMessage:
             ),
             signature_required=bool(payload.get("signatureRequired")),
             is_done=bool(payload.get("isDone")),
+            replies=replies,
         )
 
     @property
     def can_confirm(self) -> bool:
         """Return whether this received message still needs acknowledgement."""
         return not self.is_owned and not self.is_confirmed
+
+    @property
+    def incoming_replies(self) -> tuple[WibiReply, ...]:
+        """Return replies sent by the other side of the message."""
+        return tuple(reply for reply in self.replies if reply.is_incoming)
 
     def as_dict(self, *, content_limit: int | None = None) -> dict[str, Any]:
         """Return serializable message data for states and service responses."""
@@ -120,6 +198,7 @@ class WibiMessage:
             "can_confirm": self.can_confirm,
             "signature_required": self.signature_required,
             "is_done": self.is_done,
+            "replies": [reply.as_dict() for reply in self.replies],
         }
 
 

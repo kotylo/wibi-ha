@@ -16,6 +16,7 @@ SSO_CALLBACK_PATH = "/sso-success"
 
 CONF_AUTH = "auth"
 CONF_CALLBACK_URL = "callback_url"
+CONF_PERSISTENT_NOTIFICATIONS = "persistent_notifications"
 
 API_VERSION_HEADER = "ZUMO-API-VERSION"
 API_VERSION = "2.0.0"

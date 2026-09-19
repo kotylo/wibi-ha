@@ -1,6 +1,6 @@
 get_messages:
   name: Get messages
-  description: Return every current WiBi message, including plain-text content for TTS.
+  description: Return every current WiBi message and its direct-answer replies, including plain-text content for TTS.
 
 confirm_message:
   name: Confirm message

@@ -30,6 +30,7 @@ from .api import (
 from .const import (
     ATTR_MESSAGE_ID,
     CONF_AUTH,
+    CONF_PERSISTENT_NOTIFICATIONS,
     DOMAIN,
     PLATFORMS,
     SERVICE_CONFIRM_LAST_MESSAGE,
@@ -63,7 +64,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: WibiConfigEntry) -> bool
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _async_register_services(hass, entry, coordinator)
-    notifier = WibiMessageNotifier(hass, coordinator)
+    notifier = WibiMessageNotifier(
+        hass,
+        coordinator,
+        show_persistent_notifications=entry.options.get(
+            CONF_PERSISTENT_NOTIFICATIONS, True
+        ),
+    )
     entry.async_on_unload(coordinator.async_add_listener(notifier.async_handle_update))
     entry.async_on_unload(
         async_track_time_interval(

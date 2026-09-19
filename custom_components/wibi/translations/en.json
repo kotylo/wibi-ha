@@ -32,5 +32,16 @@
         }
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Notifications",
+        "description": "Choose whether WiBi creates persistent Home Assistant notifications for new incoming messages and replies. The wibi_new_message event is always sent.",
+        "data": {
+          "persistent_notifications": "Show persistent notifications"
+        }
+      }
+    }
   }
 }

@@ -59,6 +59,46 @@ class WibiMessageRenderingTests(unittest.TestCase):
         self.assertEqual(plain, "Safe diagram")
         self.assertEqual(formatted, "Safe diagram")
 
+    def test_direct_replies_are_rendered_and_exposed(self) -> None:
+        message = models.WibiMessage.from_payload(
+            {
+                "id": "message-id",
+                "content": "Original",
+                "replies": [
+                    {
+                        "id": "reply-id",
+                        "content": "<p>Thanks <b>for asking</b>.</p>",
+                        "creatorFullName": "Teacher Name",
+                        "createdAt": "2026-09-15T10:00:00Z",
+                        "isIncoming": True,
+                    }
+                ],
+            },
+            models.MessageScope("class-id", "pupil-id"),
+        )
+
+        self.assertIsNotNone(message)
+        assert message is not None
+        self.assertEqual(len(message.replies), 1)
+        self.assertEqual(message.incoming_replies[0].sender, "Teacher Name")
+        self.assertEqual(
+            message.replies[0].content,
+            "Thanks for asking.",
+        )
+        self.assertEqual(
+            message.as_dict()["replies"],
+            [
+                {
+                    "id": "reply-id",
+                    "content": "Thanks for asking.",
+                    "contentHtml": "Thanks <b>for asking</b>.",
+                    "sender": "Teacher Name",
+                    "created_at": "2026-09-15T10:00:00Z",
+                    "is_incoming": True,
+                }
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
