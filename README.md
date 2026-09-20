@@ -10,6 +10,7 @@ WiBi Home Assistant Integration is a custom integration for connecting Home Assi
 - Direct-answer replies attached to messages are included in retrievals and alerts.
 - Structured plain-text message bodies suitable for notifications and text-to-speech.
 - Telegram-compatible HTML message bodies that retain emphasis such as bold and underline.
+- On-demand attachment downloads with local file paths for forwarding PDFs, images, and other files to Telegram.
 - Optional persistent Home Assistant notifications and `wibi_new_message` automation events, normally within five minutes.
 - Explicit message acknowledgement through a Home Assistant action.
 
@@ -60,6 +61,66 @@ actions:
 ```
 
 Replace `YOUR_TELEGRAM_CHAT_ID` with the chat ID accepted by your Telegram bot integration. If your Telegram action does not support a separate `title`, include the topic at the start of `message` instead.
+
+### Download and forward attachments
+
+Call `wibi.download_attachments` with an original message ID to download its files. Polling does not download attachments. The action returns an empty list when there are none, and never marks the message read or acknowledges it in WiBi. Supply `file_name` to download one exact filename instead of all attachments:
+
+```yaml
+action: wibi.download_attachments
+data:
+  message_id: "12345678-1234-1234-1234-123456789abc"
+response_variable: wibi_files
+```
+
+The response contains `message_id`, `count`, and `attachments`. Each attachment has `name` (the original filename), `file` (an absolute local path), `content_type`, `size` (downloaded bytes), and `is_image`. Files live under `<config>/wibi_attachments/<entry_id>/`; filenames are sanitized and isolated by message/file identity. Repeated downloads replace the same files atomically. Files remain available until you remove them; periodically delete unneeded downloads when no forwarding automation is using them. Each file is limited to 50 MiB. A failed download raises an action error; previously downloaded files remain on disk.
+
+The installed Home Assistant Telegram `send_message` action supports HTML text formatting, not embedded file uploads using `<img>` or `<object>`. Send files with separate `telegram_bot.send_document` or `telegram_bot.send_photo` actions. Downloads require WiBi authentication, so an HTML link to the WiBi API is not a usable Telegram attachment. See the [Telegram integration documentation](https://www.home-assistant.io/integrations/telegram_bot/).
+
+Allow Telegram to read the download folder in `configuration.yaml`, merging this into your existing `homeassistant` section. Use the actual configuration directory if it is not `/config`. Create this directory before checking/restarting Home Assistant (calling the download action on a message with files also creates it):
+
+```yaml
+homeassistant:
+  allowlist_external_dirs:
+    - /config/wibi_attachments
+```
+
+This automation sends the formatted message and then every original attachment as a separate document. Sending images as documents preserves the original file; to display a supported image as a photo, use `telegram_bot.send_photo` instead, subject to Telegram's photo limits. Replace `notify.your_telegram_chat` with your Telegram notify entity. In an existing automation, insert the attachment `if` block after your Telegram text action:
+
+```yaml
+alias: WiBi messages with attachments
+mode: queued
+max: 20
+triggers:
+  - trigger: event
+    event_type: wibi_new_message
+actions:
+  - action: telegram_bot.send_message
+    data:
+      entity_id: notify.your_telegram_chat
+      parse_mode: html
+      message: |-
+        <b>{{ trigger.event.data.topic | e }}</b>
+
+        {{ trigger.event.data.contentHtml }}
+  - if: "{{ not trigger.event.data.get('is_reply', false) }}"
+    then:
+      - action: wibi.download_attachments
+        data:
+          message_id: "{{ trigger.event.data.id }}"
+        response_variable: wibi_files
+      - repeat:
+          for_each: "{{ wibi_files.attachments }}"
+          sequence:
+            - action: telegram_bot.send_document
+              data:
+                entity_id: notify.your_telegram_chat
+                file: "{{ repeat.item.file }}"
+                caption: "{{ repeat.item.name }}"
+                parse_mode: plain_text
+```
+
+Reply events are skipped for attachments: their IDs belong to direct answers, while the verified file API belongs to the original message. Passing a reply's `parent_message_id` explicitly downloads the parent's files again, not files belonging to that reply. Unknown message IDs and missing selected filenames raise action errors.
 
 Polling and retrieving messages never acknowledges them. To acknowledge one message in WiBi, explicitly call `wibi.confirm_message` with the message's `id`:
 
@@ -119,3 +180,15 @@ logger:
 ```
 
 This project uses an undocumented API observed in the public WiBi web client. Upstream authentication behavior may change without notice.
+
+## Attachment verification
+
+Run the unit tests with `python -m unittest discover -s tests -v`. The opt-in live test requires a Home Assistant Python environment and access to its configuration:
+
+```sh
+python tests/e2e_attachments.py --config /config
+# Also send one PDF and one JPEG to the Telegram bot's sole allowed chat:
+python tests/e2e_attachments.py --config /config --send-telegram
+```
+
+The live test uses existing credentials in memory, registers the new WiBi action in an isolated Home Assistant instance, checks actual PDF/JPEG bytes and unchanged read/signature state, and optionally forwards files using the installed Telegram integration's file-sending implementation. It uses temporary download storage and does not install the component or change production automations.

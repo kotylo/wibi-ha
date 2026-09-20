@@ -2,6 +2,22 @@ get_messages:
   name: Get messages
   description: Return every current WiBi message and its direct-answer replies, including plain-text content for TTS.
 
+download_attachments:
+  name: Download attachments
+  description: Download message attachments into the private wibi_attachments configuration folder. Returns local files for actions such as Telegram send document. Does not acknowledge the message.
+  fields:
+    message_id:
+      name: Message ID
+      description: The original message ID from Get messages or a wibi_new_message event. Reply IDs are not supported.
+      required: true
+      selector:
+        text:
+    file_name:
+      name: File name
+      description: Optional exact WiBi attachment filename. Omit to download all attachments.
+      selector:
+        text:
+
 confirm_message:
   name: Confirm message
   description: Acknowledge a WiBi message as the signed-in user. This changes the message in WiBi.

@@ -23,6 +23,7 @@ from .const import (
 )
 
 REQUEST_TIMEOUT = 30
+MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -278,6 +279,77 @@ class WibiClient:
             raise WibiError("WiBi returned an unexpected message response")
         return response
 
+    async def async_get_attachments(self, message_id: str) -> list[dict[str, Any]]:
+        """List attachment metadata without marking the message as read."""
+        response = await self._async_request(
+            "GET",
+            f"/api/Files/Messages/{quote(message_id, safe='')}",
+            headers=self._auth_headers(),
+        )
+        if not isinstance(response, list) or not all(
+            isinstance(item, dict)
+            and isinstance(item.get("name"), str)
+            and item["name"]
+            for item in response
+        ):
+            raise WibiError("WiBi returned unexpected attachment metadata")
+        return response
+
+    async def async_download_attachment(
+        self, message_id: str, file_name: str
+    ) -> tuple[bytes, str]:
+        """Download a file without forwarding WiBi credentials to its file host."""
+        url = f"{API_BASE_URL}/api/Files/Messages/{quote(message_id, safe='')}"
+        params: dict[str, str] | None = {"fileName": file_name}
+        headers = {API_VERSION_HEADER: API_VERSION, **self._auth_headers()}
+        try:
+            async with asyncio.timeout(REQUEST_TIMEOUT):
+                for attempt in range(2):
+                    async with self._session.get(
+                        url, params=params, headers=headers, allow_redirects=False
+                    ) as response:
+                        if response.status in {401, 403}:
+                            raise WibiAuthenticationError(
+                                "WiBi rejected the credentials"
+                            )
+                        if (
+                            response.status in {301, 302, 303, 307, 308}
+                            and attempt == 0
+                        ):
+                            url = response.headers.get("Location", "")
+                            if not _is_attachment_redirect(url):
+                                raise WibiError(
+                                    "WiBi returned an unsupported attachment redirect"
+                                )
+                            # The file service uses the returned URL's authorization.
+                            # X-ZUMO-AUTH must only be sent to the WiBi API origin.
+                            params = None
+                            headers = {}
+                            continue
+                        return await self._async_read_attachment(response)
+        except (TimeoutError, ClientError) as error:
+            raise WibiConnectionError(
+                "Unable to download the WiBi attachment"
+            ) from error
+        raise WibiError("WiBi attachment download did not complete")
+
+    @staticmethod
+    async def _async_read_attachment(response: ClientResponse) -> tuple[bytes, str]:
+        """Read a bounded binary response, including chunked transfer bodies."""
+        if response.status != 200:
+            raise WibiError(f"WiBi attachment download returned HTTP {response.status}")
+        if (
+            response.content_length is not None
+            and response.content_length > MAX_ATTACHMENT_BYTES
+        ):
+            raise WibiError("WiBi attachment exceeds the 50 MiB limit")
+        data = bytearray()
+        async for chunk in response.content.iter_chunked(64 * 1024):
+            data.extend(chunk)
+            if len(data) > MAX_ATTACHMENT_BYTES:
+                raise WibiError("WiBi attachment exceeds the 50 MiB limit")
+        return bytes(data), response.content_type
+
     async def async_get_message_recipients(
         self, message_id: str, pupil_id: str | None = None
     ) -> list[dict[str, Any]]:
@@ -438,9 +510,7 @@ def _collection_page(
     """Normalize an OData page or direct list response."""
     if isinstance(response, list):
         return [item for item in response if isinstance(item, dict)], None
-    if not isinstance(response, dict) or not isinstance(
-        response.get("results"), list
-    ):
+    if not isinstance(response, dict) or not isinstance(response.get("results"), list):
         raise WibiError(error_message)
     total = response.get("count")
     return (
@@ -464,9 +534,7 @@ def _has_message_replies(payload: Mapping[str, Any]) -> bool:
     return payload.get("hasUnreadInstantMessages") is True
 
 
-def _recipient_record(
-    recipients: list[dict[str, Any]], user_id: str
-) -> dict[str, Any]:
+def _recipient_record(recipients: list[dict[str, Any]], user_id: str) -> dict[str, Any]:
     """Select the acknowledgement record belonging to the current user."""
     matching = [
         recipient
@@ -497,3 +565,18 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item) for item in value if item is not None]
+
+
+def _is_attachment_redirect(url: str) -> bool:
+    """Accept only the HTTPS file service observed in WiBi's download flow."""
+    try:
+        parsed = urlparse(url)
+        return (
+            parsed.scheme == "https"
+            and parsed.hostname == "getfile.foxeducation.com"
+            and parsed.port in (None, 443)
+            and parsed.username is None
+            and parsed.password is None
+        )
+    except ValueError:
+        return False

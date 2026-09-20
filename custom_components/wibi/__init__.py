@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from functools import partial
 import logging
+from pathlib import Path
 
 import voluptuous as vol
 
@@ -27,6 +28,7 @@ from .api import (
     WibiConnectionError,
     WibiError,
 )
+from .attachments import ATTACHMENT_DIRECTORY, async_download_attachments
 from .const import (
     ATTR_MESSAGE_ID,
     CONF_AUTH,
@@ -35,6 +37,7 @@ from .const import (
     PLATFORMS,
     SERVICE_CONFIRM_LAST_MESSAGE,
     SERVICE_CONFIRM_MESSAGE,
+    SERVICE_DOWNLOAD_ATTACHMENTS,
     SERVICE_GET_MESSAGES,
     TOKEN_REFRESH_INTERVAL,
 )
@@ -87,6 +90,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: WibiConfigEntry) -> boo
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         hass.services.async_remove(DOMAIN, SERVICE_GET_MESSAGES)
+        hass.services.async_remove(DOMAIN, SERVICE_DOWNLOAD_ATTACHMENTS)
         hass.services.async_remove(DOMAIN, SERVICE_CONFIRM_MESSAGE)
         hass.services.async_remove(DOMAIN, SERVICE_CONFIRM_LAST_MESSAGE)
     return unloaded
@@ -97,7 +101,7 @@ def _async_register_services(
     entry: WibiConfigEntry,
     coordinator: WibiDataUpdateCoordinator,
 ) -> None:
-    """Register read and acknowledgement actions for the single WiBi entry."""
+    """Register message, attachment, and acknowledgement actions for WiBi."""
 
     async def async_get_messages(_call: ServiceCall) -> dict[str, object]:
         await coordinator.async_request_refresh()
@@ -106,6 +110,27 @@ def _async_register_services(
             "count": len(messages),
             "messages": [message.as_dict() for message in messages],
         }
+
+    async def async_download_message_attachments(
+        call: ServiceCall,
+    ) -> dict[str, object]:
+        message_id = call.data[ATTR_MESSAGE_ID]
+        if not any(message.id == message_id for message in coordinator.data):
+            await coordinator.async_request_refresh()
+        if not any(message.id == message_id for message in coordinator.data):
+            raise ServiceValidationError(f"Unknown WiBi message ID: {message_id}")
+        try:
+            return await async_download_attachments(
+                coordinator.client,
+                Path(hass.config.path(ATTACHMENT_DIRECTORY, entry.entry_id)),
+                message_id,
+                call.data.get("file_name"),
+            )
+        except WibiAuthenticationError as error:
+            entry.async_start_reauth(hass)
+            raise HomeAssistantError("WiBi authentication expired") from error
+        except WibiError as error:
+            raise HomeAssistantError(str(error)) from error
 
     async def async_confirm_message(call: ServiceCall) -> dict[str, object]:
         message_id = call.data[ATTR_MESSAGE_ID]
@@ -152,6 +177,18 @@ def _async_register_services(
         SERVICE_GET_MESSAGES,
         async_get_messages,
         schema=vol.Schema({}),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_DOWNLOAD_ATTACHMENTS,
+        async_download_message_attachments,
+        schema=vol.Schema(
+            {
+                vol.Required(ATTR_MESSAGE_ID): cv.string,
+                vol.Optional("file_name"): cv.string,
+            }
+        ),
         supports_response=SupportsResponse.ONLY,
     )
     hass.services.async_register(
