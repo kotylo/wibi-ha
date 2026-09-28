@@ -29,6 +29,10 @@ from .api import (
     WibiError,
 )
 from .attachments import ATTACHMENT_DIRECTORY, async_download_attachments
+from .calendar_services import (
+    async_register_calendar_services,
+    async_unregister_calendar_services,
+)
 from .const import (
     ATTR_MESSAGE_ID,
     CONF_AUTH,
@@ -67,6 +71,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: WibiConfigEntry) -> bool
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     _async_register_services(hass, entry, coordinator)
+    async_register_calendar_services(hass)
     notifier = WibiMessageNotifier(
         hass,
         coordinator,
@@ -89,6 +94,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: WibiConfigEntry) -> boo
     """Unload a WiBi config entry."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
+        async_unregister_calendar_services(hass)
         hass.services.async_remove(DOMAIN, SERVICE_GET_MESSAGES)
         hass.services.async_remove(DOMAIN, SERVICE_DOWNLOAD_ATTACHMENTS)
         hass.services.async_remove(DOMAIN, SERVICE_CONFIRM_MESSAGE)

@@ -33,3 +33,66 @@ confirm_message:
 confirm_last_message:
   name: Confirm last message
   description: Acknowledge the newest incoming WiBi message without requiring its ID. This changes the message in WiBi.
+
+get_calendar_events:
+  name: Get calendar events for reminders
+  description: Return expanded Google Calendar occurrences with event IDs and descriptions for AI reminder proposals. Requires an existing writable Google Calendar connection.
+  fields:
+    entity_id:
+      name: Calendar
+      required: true
+      selector:
+        entity:
+          filter:
+            - domain: calendar
+              integration: google
+    start_date_time:
+      name: Start time
+      description: ISO 8601 timestamp with UTC offset.
+      required: true
+      selector:
+        text:
+    end_date_time:
+      name: End time
+      description: Exclusive end of the time range, with UTC offset.
+      required: true
+      selector:
+        text:
+
+append_calendar_reminder:
+  name: Append calendar reminder
+  description: Append a WiBi reminder to one future Google Calendar occurrence after checking its start and existing description. Never edits an entire repeating series.
+  fields:
+    entity_id:
+      name: Calendar
+      required: true
+      selector:
+        entity:
+          filter:
+            - domain: calendar
+              integration: google
+    event_id:
+      name: Event occurrence ID
+      description: Exact event_id returned by Get calendar events for reminders, not the recurring series ID.
+      required: true
+      selector:
+        text:
+    expected_start:
+      name: Expected start
+      description: The occurrence start from the calendar snapshot, with UTC offset.
+      required: true
+      selector:
+        text:
+    expected_description:
+      name: Expected description
+      description: Original description from the calendar snapshot; use an empty string if there was none.
+      required: true
+      selector:
+        text:
+          multiline: true
+    reminder:
+      name: Reminder to append
+      required: true
+      selector:
+        text:
+          multiline: true

@@ -155,6 +155,98 @@ class WibiNotificationTests(unittest.TestCase):
         )
         persistent_notification.async_create.assert_not_called()
 
+    def test_manual_test_event_uses_newest_incoming_message(self) -> None:
+        scope = models.MessageScope("class-id", "pupil-id")
+        outgoing = models.WibiMessage.from_payload(
+            {"id": "outgoing", "content": "Sent by me", "isOwned": True}, scope
+        )
+        newest_incoming = models.WibiMessage.from_payload(
+            {"id": "newest", "content": "Latest school message"}, scope
+        )
+        older_incoming = models.WibiMessage.from_payload(
+            {"id": "older", "content": "Earlier school message"}, scope
+        )
+        assert outgoing is not None
+        assert newest_incoming is not None
+        assert older_incoming is not None
+        hass = SimpleNamespace(bus=SimpleNamespace(async_fire=Mock()))
+
+        fired = notifications.async_fire_test_event(
+            hass, [outgoing, newest_incoming, older_incoming]
+        )
+
+        self.assertTrue(fired)
+        hass.bus.async_fire.assert_called_once_with(
+            "wibi_new_message", newest_incoming.as_dict()
+        )
+
+    def test_manual_test_event_requires_an_incoming_message(self) -> None:
+        scope = models.MessageScope("class-id", "pupil-id")
+        outgoing = models.WibiMessage.from_payload(
+            {"id": "outgoing", "content": "Sent by me", "isOwned": True}, scope
+        )
+        assert outgoing is not None
+        hass = SimpleNamespace(bus=SimpleNamespace(async_fire=Mock()))
+
+        fired = notifications.async_fire_test_event(hass, [outgoing])
+
+        self.assertFalse(fired)
+        hass.bus.async_fire.assert_not_called()
+
+    def test_custom_test_event_fires_edited_yaml(self) -> None:
+        hass = SimpleNamespace(bus=SimpleNamespace(async_fire=Mock()))
+        event_yaml = """event_type: wibi_new_message
+data:
+  id: custom-id
+  topic: Edited topic
+  is_read: false
+  replies: []
+"""
+
+        notifications.async_fire_custom_test_event(hass, event_yaml)
+
+        hass.bus.async_fire.assert_called_once_with(
+            "wibi_new_message",
+            {
+                "id": "custom-id",
+                "topic": "Edited topic",
+                "is_read": False,
+                "replies": [],
+            },
+        )
+
+    def test_default_custom_test_event_contains_predefined_message(self) -> None:
+        hass = SimpleNamespace(bus=SimpleNamespace(async_fire=Mock()))
+
+        notifications.async_fire_custom_test_event(
+            hass, notifications.DEFAULT_CUSTOM_TEST_EVENT
+        )
+
+        event_type, event_data = hass.bus.async_fire.call_args.args
+        self.assertEqual(event_type, "wibi_new_message")
+        self.assertEqual(event_data["id"], "5286b509-24bc-4fe9-b528-5ce66c07d264")
+        self.assertEqual(event_data["topic"], "Projekt-Nachmittag morgen")
+        self.assertEqual(event_data["sender"], "Someone Unknown")
+        self.assertEqual(event_data["scope_name"], "2A")
+        self.assertFalse(event_data["is_owned"])
+        self.assertEqual(event_data["replies"], [])
+
+    def test_custom_test_event_rejects_invalid_structure(self) -> None:
+        hass = SimpleNamespace(bus=SimpleNamespace(async_fire=Mock()))
+
+        invalid_events = (
+            "not: [valid",
+            "- event_type\n- wibi_new_message",
+            "event_type: ''\ndata: {}",
+            "event_type: wibi_new_message\ndata: message",
+        )
+        for event_yaml in invalid_events:
+            with self.subTest(event_yaml=event_yaml):
+                with self.assertRaises(ValueError):
+                    notifications.async_fire_custom_test_event(hass, event_yaml)
+
+        hass.bus.async_fire.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

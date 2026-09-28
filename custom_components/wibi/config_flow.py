@@ -9,6 +9,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.core import callback
+from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import (
@@ -26,8 +27,14 @@ from .const import (
     DOMAIN,
     SSO_LOGIN_URL,
 )
+from .notifications import (
+    DEFAULT_CUSTOM_TEST_EVENT,
+    async_fire_custom_test_event,
+    async_fire_test_event,
+)
 
 CALLBACK_SCHEMA = vol.Schema({vol.Required(CONF_CALLBACK_URL): str})
+CONF_CUSTOM_TEST_EVENT = "event_yaml"
 
 
 class WibiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -128,6 +135,15 @@ class WibiOptionsFlowHandler(config_entries.OptionsFlowWithReload):
     """Manage WiBi notification options."""
 
     async def async_step_init(
+        self, _user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show WiBi configuration and test actions."""
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["notifications", "test_event", "custom_test_event"],
+        )
+
+    async def async_step_notifications(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Set whether persistent notifications are created."""
@@ -135,7 +151,7 @@ class WibiOptionsFlowHandler(config_entries.OptionsFlowWithReload):
             return self.async_create_entry(data=user_input)
 
         return self.async_show_form(
-            step_id="init",
+            step_id="notifications",
             data_schema=vol.Schema(
                 {
                     vol.Required(
@@ -146,4 +162,44 @@ class WibiOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     ): bool,
                 }
             ),
+        )
+
+    async def async_step_test_event(
+        self, _user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Fire a test event containing the newest incoming message."""
+        coordinator = self.config_entry.runtime_data
+        if not async_fire_test_event(self.hass, coordinator.data):
+            return self.async_abort(reason="no_messages")
+        return self.async_abort(reason="test_event_fired")
+
+    async def async_step_custom_test_event(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show an editable event payload and fire it after validation."""
+        errors: dict[str, str] = {}
+        event_yaml = DEFAULT_CUSTOM_TEST_EVENT
+
+        if user_input is not None:
+            event_yaml = user_input[CONF_CUSTOM_TEST_EVENT]
+            try:
+                async_fire_custom_test_event(self.hass, event_yaml)
+            except ValueError:
+                errors[CONF_CUSTOM_TEST_EVENT] = "invalid_event_yaml"
+            else:
+                return self.async_abort(reason="custom_test_event_fired")
+
+        return self.async_show_form(
+            step_id="custom_test_event",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CUSTOM_TEST_EVENT,
+                        default=event_yaml,
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(multiline=True)
+                    ),
+                }
+            ),
+            errors=errors,
         )

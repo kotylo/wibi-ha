@@ -34,14 +34,40 @@
     }
   },
   "options": {
+    "abort": {
+      "custom_test_event_fired": "The customized test event was sent",
+      "no_messages": "No incoming WiBi message is available for a test event",
+      "test_event_fired": "The wibi_new_message test event was sent with the newest incoming message"
+    },
     "step": {
       "init": {
+        "title": "Configure WiBi",
+        "menu_options": {
+          "notifications": "Notification settings",
+          "test_event": "Send test message",
+          "custom_test_event": "Send test message (customized)"
+        }
+      },
+      "custom_test_event": {
+        "title": "Send test message (customized)",
+        "description": "Edit the event type and data, then submit to send the event on the Home Assistant event bus.",
+        "data": {
+          "event_yaml": "Event YAML"
+        },
+        "data_description": {
+          "event_yaml": "The top-level event_type must be a non-empty string and data must be a mapping."
+        }
+      },
+      "notifications": {
         "title": "Notifications",
         "description": "Choose whether WiBi creates persistent Home Assistant notifications for new incoming messages and replies. The wibi_new_message event is always sent.",
         "data": {
           "persistent_notifications": "Show persistent notifications"
         }
       }
+    },
+    "error": {
+      "invalid_event_yaml": "Enter valid YAML containing a non-empty event_type and a data mapping"
     }
   }
 }
